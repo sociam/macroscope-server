@@ -7,9 +7,6 @@ var io = require('socket.io')(app);
 var fs = require('fs');
 var _ = require('underscore');
 var wpimg = require('wikipedia-image');
-var mongoose = require('mongoose');
-mongoose.connect('mongodb://localhost/roomDB');
-mongoose.Promise = global.Promise;
 // var config = require('./config');
 
 // app.timeout = 0;// trying to fix a stupid error
@@ -24,8 +21,6 @@ var temp_user_cnt = 0;
 // var language_filter = "";
 
 var processed_msg_cnt = 0;
-
-var roomIncrement = 1;
 
 // don't need the global filters_made
 // var filters_made = [];
@@ -72,282 +67,257 @@ io.sockets.setMaxListeners(0);
 // twitter_delete
 // twitter_delete_pulse
 
+var mongoose = require('mongoose');
+mongoose.connect('mongodb://localhost/roomDB');
+mongoose.Promise = global.Promise;
 // notification if we connect successfully to the db or if a connection error
 // occurs
 var db = mongoose.connection;
 db.on('error', console.error.bind(console, 'connection error:'));
 db.once('open', function() {
+	console.log("connected to database");
+});
 
-	console.log("hey");
-	// reference to the schema
-	var roomsSchema = mongoose.Schema({
-		roomID : Number,
-		timeCreated : Date,
-		owner : String,
-		attached_vizs : Array,
-		// state of the room, if it's still visible
-		active : Boolean,
-		stats : {
-			view_count : Number,
-			unique_participants : Array
+// reference to the schema
+var roomsSchema = mongoose.Schema({
+	roomID : Number,
+	timeCreated : Date,
+	owner : String,
+	attached_vizs : Array,
+	// state of the room, if it's still visible
+	active : Boolean,
+	stats : {
+		view_count : Number,
+		unique_participants : Array
+	}
+// when the room becomes inactive
+// time_archived: Date
+}, {
+	// _id: false,
+	versionKey : false
+});
+
+// compiling our schema into a Model
+var Room = mongoose.model('Room', roomsSchema);
+
+function updateRoomID(socket) {
+	Room.findOne().sort({
+		$natural : -1
+	}).exec(function(err, result) {
+		if (err)
+			return console.error(err);
+		if (result == null) {
+			var id = 1;
+			try {
+				socket.emit("returnedRoomID", id);
+			} catch (e) {
+				console.log("not emitting -returnedRoomID- in if");
+			}
+		} else {
+			try {
+				var newid = result.roomID;
+				newid++;
+				socket.emit("returnedRoomID", newid);
+			} catch (e) {
+				console.log("not emitting -returnedRoomID-");
+			}
 		}
-	// when the room becomes inactive
-	// time_archived: Date
-	}, {
-		// _id: false,
-		versionKey : false
+
+	});
+}
+
+function getActiveRooms(socket){
+	Room.find().sort({$natural: -1}).exec(function(err,response){
+		if(err) return console.error(err);
+		try{
+			socket.emit("activeRooms", response);
+		}catch(e){
+			console.log("not emitting activeRooms");
+		}
+	});
+}
+
+io.on('connection', function(socket) {
+
+	socket.on("updateRoom", function(data) {
+		console.log("updateRoom event triggered");
+		updateRoomID(socket);
 	});
 
-	// compiling our schema into a Model
-	var Room = mongoose.model('Room', roomsSchema);
+	socket.on("newRoom", function(data) {
+		console.log("newRoom event triggered")
+		ds[data.roomName] = {};
+		rooms.push(data.roomName);
+		ds[data.roomName].vizs = data.attached_vizs;
 
+		var doc = new Room({
+			roomID : data.roomID,
+			timeCreated : data.currentDate,
+			owner : "",
+			attached_vizs : data.attached_vizs,
+			active : data.active,
+			stats : {}
+		});
+
+		doc.save(function(err, doc) {
+			if (err)
+				return console.error(err);
+		});
+
+		console.log("NewRoom added to db");
+		socket.emit("roomCreated", "");
+		console.log(rooms);
+
+	});
 	
+	socket.on('getActiveRooms', function(data){
+		console.log("getActiveRooms triggered");
+		getActiveRooms(socket);
+	});
 
-	function getNextID() {
-// var newID = Room.findOne({
-// timeCreated : date,
-// }, "roomID", function(err, result) {
-// if (err) return console.error(err);
-// //console.log(result.roomID);
-// if(result==null){
-// return 1;
-// }else{
-// return result.roomID ++;
-// }
-// });
-		var lastid;
-		
-//		Room.find().sort({$natural: -1}).limit(1).exec(function(err,result){
-//			if(err) return console.error(err);
-//			// console.log(result[0].roomID);
-//			if(result.length>0){
-//				lastid=result[0].roomID;
-//				lastid++;
-//				console.log("hahhahaha "+ result[0].roomID);
-//				
-//				//return result[0].roomID++;
-//			}
-//			else{
-//				lastid=1;
-//				console.log("m-am saturat " + lastid);
-//				
-//				//return 1;
-//			}
-		Room.findOne().sort({$natural: -1}).exec(function(err,result){
-			if(err) return console.error(err);
-			// console.log(result[0].roomID);
-			if(result!=null){
-				lastid=result.roomID;
-				lastid++;
-				console.log("ifff "+ lastid);
-				
-				//return result[0].roomID++;
-			}
-			else{
-				lastid=1;
-				console.log("arghhhh " + lastid);
-				
-				//return 1;
-			}
-			
-		});
-		
-		console.log("next id: " + lastid);
-		return lastid;
+	socket.on('newViz', function(data) {
+		var newViz = {};
+		newViz.vizName = data.vizName;
+		newViz.currentDate = data.currentDate;
 
-		//console.log("asdada here is lastEntry: " + lastEntry[0].roomID);
-	}
+		console.log("");
+		console.log("NewViz created");
 
-	var roomCounter = 1;
-	console.log("bla");
-	io.on('connection', function(socket) {
-		
-		socket.on("newRoom", function(data) {
-			console.log("newRoom event triggered")
-			ds[data.roomName] = {};
-			rooms.push(data.roomName);
-			ds[data.roomName].vizs = data.attached_vizs;
-//			try{
-				var c=getNextID();
-//			}catch(e){
-//				console.log("errrr");
-//			}
+		// if room exists
+		if (ds[data.room] != undefined) {
 
-			var doc = new Room({
-				roomID : c,
-				timeCreated : data.currentDate,
-				owner : "",
-				attached_vizs : data.attached_vizs,
-				active : data.active,
-				stats : {}
-			});
+			// push newViz in there
+			ds[data.room].vizs.push(newViz);
+			console.log(data.room + " already exists and " + newViz.vizName
+					+ " is in here");
+			// if room doesn't exist
+		} else {
+			ds[data.room] = {};
+			// add this new room the array of rooms
+			rooms.push(data.room);
+			ds[data.room].vizs = [];
+			ds[data.room].vizs.push(newViz);
+			// add an empty filter to the newly created room
+			ds[data.room].filter = {
+				// set the filter to this new room to false
+				"filter" : false,
+				"keyword_filter" : "",
+				"language_filter" : ""
+			};
+			// array for filters applied to this room
+			ds[data.room].filters_made = [];
+			console.log(data.room + " was just created and " + newViz.vizName
+					+ " was added to this room now");
+			// socket.emit("addNewRoom", data.room);
 
-			doc.save(function(err, doc) {
-				if (err)
-					return console.error(err);
-			});
-			
-			// roomCounter = getNextID(data.currentDate);
-			roomCounter++;
-			console.log("NewRoom added to db");
-// try{
-// getNextID();
-// }catch(e){
-// console.log("äsda");
-// }
+			// socket.emit("filter", filter); // emit the current state to
+			// this client
 
-		});
+		}
 
-		socket.on('newViz', function(data) {
-			var newViz = {};
-			newViz.vizName = data.vizName;
-			newViz.currentDate = data.currentDate;
+		// finally send newViz to the specified room
+		socket.join(data.room);
+		// socket.broadcast.to(data.room).emit('newVizJoined',
+		// newViz.vizName);
+		// show the filters in that room
+		socket.emit('existing_filters', ds[data.room].filters_made);
+		io.sockets.to(data.room).emit("set_filter_keyword",
+				ds[data.room].filter.keyword_filter);
+		console.log("set_filter keyword emitted");
+		io.sockets.to(data.room).emit("set_filter_lang",
+				ds[data.room].filter.language_filter);
+		console.log("set_filter lang emitted");
+		// emit this to the filter so that the filter checks the room and
+		// emits the right filter to the viz
+		// io.sockets.to(data.room).emit('checkRoom', {"vizName":
+		// newViz.vizName, "room": data.room});
+		console.log("The vizs in this room are: " + "\n" + ds[data.room].vizs);
+		console.log("Current Date HEREEEE:" + newViz.currentDate);
+	});
 
-			console.log("");
-			console.log("NewViz created");
-
-			// if room exists
-			if (ds[data.room] != undefined) {
-
-				// push newViz in there
-				ds[data.room].vizs.push(newViz);
-				console.log(data.room + " already exists and " + newViz.vizName
-						+ " is in here");
-				// if room doesn't exist
-			} else {
-				ds[data.room] = {};
-				// add this new room the array of rooms
-				rooms.push(data.room);
-				ds[data.room].vizs = [];
-				ds[data.room].vizs.push(newViz);
-				// add an empty filter to the newly created room
-				ds[data.room].filter = {
-					// set the filter to this new room to false
-					"filter" : false,
-					"keyword_filter" : "",
-					"language_filter" : ""
-				};
-				// array for filters applied to this room
-				ds[data.room].filters_made = [];
-				console.log(data.room + " was just created and "
-						+ newViz.vizName + " was added to this room now");
-				// socket.emit("addNewRoom", data.room);
-
-				// socket.emit("filter", filter); // emit the current state to
-				// this client
-
-			}
-
-			// finally send newViz to the specified room
-			socket.join(data.room);
-			// socket.broadcast.to(data.room).emit('newVizJoined',
-			// newViz.vizName);
-			// show the filters in that room
-			socket.emit('existing_filters', ds[data.room].filters_made);
+	// my version of 'filter'
+	// should receive the filter and also the room that the filter applies
+	// to
+	socket.on("filter", function(data) {
+		console.log("Filter updated:", data.newFilter);
+		// if room exists update filter, combine it and send to clients in
+		// the
+		// specified room
+		if (ds[data.room] != undefined) {
+			_.extend(ds[data.room].filter, data.newFilter);
+			var tempFilter = ds[data.room].filter;
+			io.sockets.to(data.room).emit("filter", tempFilter.filter);
 			io.sockets.to(data.room).emit("set_filter_keyword",
-					ds[data.room].filter.keyword_filter);
-			console.log("set_filter keyword emitted");
+					tempFilter.keyword_filter);
 			io.sockets.to(data.room).emit("set_filter_lang",
-					ds[data.room].filter.language_filter);
-			console.log("set_filter lang emitted");
-			// emit this to the filter so that the filter checks the room and
-			// emits the right filter to the viz
-			// io.sockets.to(data.room).emit('checkRoom', {"vizName":
-			// newViz.vizName, "room": data.room});
-			console.log("The vizs in this room are: " + "\n"
-					+ ds[data.room].vizs);
-			console.log("Current Date HEREEEE:" + newViz.currentDate);
-		});
+					tempFilter.language_filter);
+		} else {
+			console.log("Room doesn't exist");
+		}
+	});
 
-		// my version of 'filter'
-		// should receive the filter and also the room that the filter applies
-		// to
-		socket.on("filter", function(data) {
-			console.log("Filter updated:", data.newFilter);
-			// if room exists update filter, combine it and send to clients in
-			// the
-			// specified room
-			if (ds[data.room] != undefined) {
-				_.extend(ds[data.room].filter, data.newFilter);
-				var tempFilter = ds[data.room].filter;
-				io.sockets.to(data.room).emit("filter", tempFilter.filter);
-				io.sockets.to(data.room).emit("set_filter_keyword",
-						tempFilter.keyword_filter);
-				io.sockets.to(data.room).emit("set_filter_lang",
-						tempFilter.language_filter);
-			} else {
-				console.log("Room doesn't exist");
-			}
-		});
+	socket.on('get_filter_list', function(room) {
+		// update with the last few items of the filter_list in that room
+		try {
+			var last_filters = ds[room].filters_made;
+			sendLastFilterItems({
+				"room" : room,
+				"last_filters" : last_filters.slice((last_filters.length - 3),
+						(last_filters.length - 1))
+			});
+			console.log("Filter list: " + "\n" + ds[room].filters_made);
+		} catch (e) {
+			// Might be an empty list...
+		}
+	});
 
-		socket.on('get_filter_list', function(room) {
-			// update with the last few items of the filter_list in that room
-			try {
-				var last_filters = ds[room].filters_made;
-				sendLastFilterItems({
-					"room" : room,
-					"last_filters" : last_filters.slice(
-							(last_filters.length - 3),
-							(last_filters.length - 1))
-				});
-				console.log("Filter list: " + "\n" + ds[room].filters_made);
-			} catch (e) {
-				// Might be an empty list...
-			}
-		});
+	// should also receive the room along with the newFilter
+	socket.on('filter_keyword', function(data) {
+		console.log("Filter_keyword updated:", data.newFilter);
+		if (ds[data.room] != undefined) {
+			var tempFilter = ds[data.room].filter;
+			tempFilter.filter = true;
+			tempFilter.keyword_filter = data.newFilter;
+			// emit to the sockets in the room
+			io.sockets.to(data.room).emit("filter", tempFilter.filter);
+			io.sockets.to(data.room).emit("set_filter_keyword",
+					tempFilter.keyword_filter);
 
-		// should also receive the room along with the newFilter
-		socket.on('filter_keyword',
-				function(data) {
-					console.log("Filter_keyword updated:", data.newFilter);
-					if (ds[data.room] != undefined) {
-						var tempFilter = ds[data.room].filter;
-						tempFilter.filter = true;
-						tempFilter.keyword_filter = data.newFilter;
-						// emit to the sockets in the room
-						io.sockets.to(data.room).emit("filter",
-								tempFilter.filter);
-						io.sockets.to(data.room).emit("set_filter_keyword",
-								tempFilter.keyword_filter);
+			// add the new filter to the filters_made
+			addToFilterList(data.room, "keyword", tempFilter.keyword_filter);
 
-						// add the new filter to the filters_made
-						addToFilterList(data.room, "keyword",
-								tempFilter.keyword_filter);
+		} else {
+			console.log("Room doesn't exist");
+		}
+	});
 
-					} else {
-						console.log("Room doesn't exist");
-					}
-				});
+	// receive a filter update, combine it and sent it to the clients in the
+	// specified ROOM!!
+	socket.on('filter_lang', function(data) {
+		if (ds[data.room] != undefined) {
+			var tempFilter = ds[data.room].filter;
+			tempFilter.filter = true;
+			tempFilter.language_filter = data.newFilter;
+			io.sockets.to(data.room).emit("filter", tempFilter.filter);
+			io.sockets.to(data.room).emit("set_filter_lang",
+					tempFilter.language_filter);
 
-		// receive a filter update, combine it and sent it to the clients in the
-		// specified ROOM!!
-		socket.on('filter_lang', function(data) {
-			if (ds[data.room] != undefined) {
-				var tempFilter = ds[data.room].filter;
-				tempFilter.filter = true;
-				tempFilter.language_filter = data.newFilter;
-				io.sockets.to(data.room).emit("filter", tempFilter.filter);
-				io.sockets.to(data.room).emit("set_filter_lang",
-						tempFilter.language_filter);
+			addToFilterList(data.room, "language", tempFilter.language_filter);
+			console.log("Filter_language updated:", data.newFilter);
 
-				addToFilterList(data.room, "language",
-						tempFilter.language_filter);
-				console.log("Filter_language updated:", data.newFilter);
+		} else {
+			console.log("Room doesn't exist");
+		}
+	});
 
-			} else {
-				console.log("Room doesn't exist");
-			}
-		});
+	// new ms user...
+	// receive a filter update, combine it and send to ALL clients
+	socket.on('active_user', function(newFilter) {
+		// console.log("filter updated:", newFilter);
+		// console.log("emitting filter:", filter);
+		++temp_user_cnt;
+	});
 
-		// new ms user...
-		// receive a filter update, combine it and send to ALL clients
-		socket.on('active_user', function(newFilter) {
-			// console.log("filter updated:", newFilter);
-			// console.log("emitting filter:", filter);
-			++temp_user_cnt;
-		});
-
-	})
 });
 
 function emit_processed_message_count() {
