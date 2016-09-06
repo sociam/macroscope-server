@@ -70,8 +70,7 @@ io.sockets.setMaxListeners(0);
 var mongoose = require('mongoose');
 mongoose.connect('mongodb://localhost/roomDB');
 mongoose.Promise = global.Promise;
-// notification if we connect successfully to the db or if a connection error
-// occurs
+// notification if we connect successfully to the db or if a connection error occurs
 var db = mongoose.connection;
 db.on('error', console.error.bind(console, 'connection error:'));
 db.once('open', function() {
