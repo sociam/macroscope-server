@@ -81,11 +81,13 @@ db.once('open', function() {
 // reference to the schema
 var roomsSchema = mongoose.Schema({
 	roomID : Number,
+	roomName: String,
 	timeCreated : Date,
 	owner : String,
 	attached_vizs : Array,
 	// state of the room, if it's still visible
 	active : Boolean,
+	description : String,
 	stats : {
 		view_count : Number,
 		unique_participants : Array
@@ -137,7 +139,23 @@ function getActiveRooms(socket){
 	});
 }
 
+function getRoomDetails(data){
+	Room.findOne({ roomID: data.id }, function(err, result){
+		if(err) return console.error(err);
+		try{
+			data.socket.emit("roomDetails", result);
+		}catch(e){
+			console.log("not emitting roomDetails event");
+		}
+	});
+}
+
 io.on('connection', function(socket) {
+	
+	socket.on("getRoomDetails", function(data){
+		console.log("getRoomDetails event triggered");
+		getRoomDetails({"socket":socket, "id": data});
+	})
 
 	socket.on("updateRoom", function(data) {
 		console.log("updateRoom event triggered");
@@ -152,10 +170,12 @@ io.on('connection', function(socket) {
 
 		var doc = new Room({
 			roomID : data.roomID,
+			roomName: data.roomName,
 			timeCreated : data.currentDate,
 			owner : "",
 			attached_vizs : data.attached_vizs,
 			active : data.active,
+			description : data.roomDesc,
 			stats : {}
 		});
 
