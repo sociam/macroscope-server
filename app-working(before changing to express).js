@@ -2,9 +2,7 @@
  * 
  */
 var amqp = require('amqplib');
-var express = require('express')();
-var app= require('http').Server(express);
-//var app = require('http').createServer(handler);
+var app = require('http').createServer(handler);
 var io = require('socket.io')(app);
 var fs = require('fs');
 var _ = require('underscore');
@@ -75,15 +73,10 @@ mongoose.Promise = global.Promise;
 // notification if we connect successfully to the db or if a connection error
 // occurs
 var db = mongoose.connection;
-
-//img paths
-var imgPath0 = '\ms.png';
-var imgPath1 = '\wikipediamap(resized).png';
-var imgPath2 = '\cascades.png';
-var imgPath3 = '\deletedtweets(resized).png';
-
 db.on('error', console.error.bind(console, 'connection error:'));
-
+db.once('open', function() {
+	console.log("connected to database");
+});
 
 // reference to the schema
 var roomsSchema = mongoose.Schema({
@@ -108,115 +101,6 @@ var roomsSchema = mongoose.Schema({
 
 // compiling our schema into a Model
 var Room = mongoose.model('Room', roomsSchema);
-
-//creating a schema for the visualizations
-var vizSchema= mongoose.Schema({
-	vizName: String,
-	picture: { data: Buffer, contentType: String },
-	URL: String
-	
-},{
-	//_id: false,
-	versionKey : false
-	
-});
-
-var VizModel = mongoose.model('VizModel', vizSchema); 
-
-db.once('open', function() {
-	console.log("connected to database");
-	
-	// empty the collection
-	  VizModel.remove(function (err) {
-	    if (err) throw err;
-
-	    console.error('removed old docs from VizModel');
-
-	    // store an img in binary in mongo
-	    var a = new VizModel;
-	    a.picture.data = fs.readFileSync(imgPath1);
-	    a.picture.contentType = 'image/png';
-	    a.vizName="Wikipedia_Map";
-	    a.URL="file:///C:/Users/Dani/Documents/GitHub/wikipediaMap/index.html";
-	    a.save(function (err, a) {
-	      if (err) throw err;
-
-	      console.error('saved img to mongo');
-
-	      express.get('/Wikipedia_Map', function (req, res, next) {
-	    	 VizModel.findOne({vizName: "Wikipedia_Map"}, function (err, doc) {
-	          if (err) return next(err);
-	          res.contentType(doc.picture.contentType);
-	          res.send(doc.picture.data);
-	        });
-	      });
-
-	    });
-	    
-	    var b = new VizModel;
-	    b.picture.data = fs.readFileSync(imgPath2);
-	    b.picture.contentType = 'image/png';
-	    b.vizName="Twitter_Cascades";
-	    b.URL="file:///C:/Users/Dani/Documents/GitHub/twitterCascades/index.html";
-	    b.save(function (err, b) {
-	      if (err) throw err;
-
-	      console.error('saved img to mongo');
-
-	      express.get('/Twitter_Cascades', function (req, res, next) {
-	    	 VizModel.findOne({vizName: "Twitter_Cascades"}, function (err, doc) {
-	          if (err) return next(err);
-	          res.contentType(doc.picture.contentType);
-	          res.send(doc.picture.data);
-	        });
-	      });
-
-	    });
-	    
-	    var c = new VizModel;
-	    c.picture.data = fs.readFileSync(imgPath3);
-	    c.picture.contentType = 'image/png';
-	    c.vizName="Deleted_Tweets";
-	    c.URL="file:///C:/Users/Dani/Documents/GitHub/deletedTweets/index.html";
-	    c.save(function (err, c) {
-	      if (err) throw err;
-
-	      console.error('saved img to mongo');
-
-	      express.get('/Deleted_Tweets', function (req, res, next) {
-	    	 VizModel.findOne({vizName: "Deleted_Tweets"}, function (err, doc) {
-	          if (err) return next(err);
-	          res.contentType(doc.picture.contentType);
-	          res.send(doc.picture.data);
-	        });
-	      });
-
-	    });
-	    
-	    var d = new VizModel;
-	    d.picture.data = fs.readFileSync(imgPath0);
-	    d.picture.contentType = 'image/png';
-	    d.vizName="Filter";
-	    d.URL="file:///C:/Users/Dani/Documents/GitHub/ms-filter/index.html";
-	    d.save(function (err, d) {
-	      if (err) throw err;
-
-	      console.error('saved img to mongo');
-
-	      express.get('/Filter', function (req, res, next) {
-	    	 VizModel.findOne({vizName: "Filter"}, function (err, doc) {
-	          if (err) return next(err);
-	          res.contentType(doc.picture.contentType);
-	          res.send(doc.picture.data);
-	        });
-	      });
-
-	    });
-	    
-	    
-	  });
-
-});
 
 function updateRoomID(socket) {
 	Room.findOne().sort({
@@ -266,42 +150,6 @@ function getRoomDetails(data){
 	});
 }
 
-function getAttachedVizs(data){
-	Room.findOne({roomID:data.roomID}, function(err,docs){
-	
-		var vizs=docs.attached_vizs;
-	
-	
-	
-	VizModel.find({
-	    'vizName': { $in: vizs}
-	}, function(err, docs){
-		if(err) console.error(err);
-		data.socket.emit('vizsURLS', {"vizDocs": docs, "roomID":data.roomID});
-	    console.log(docs);
-	});
-	
-	});
-	
-//	for(int i=0; i<data.attached_vizs.length; i++){
-//		VizModel.findOne({vizName : data.attached_vizs[i]}, "URL", "vizName", function(err, response){
-//			if(err) return console.error(err);
-//			response.URL= response.URL+ "?room=" + data.roomID + "&vizName=" + response.vizName;
-//			vizs[i]=response;
-//			console.log(i+ " " +vizs[i]);
-//		});
-//		
-//		
-//	}
-//	
-//	if(vizs.length==data.attached_vizs.length){
-//		console.log("Array of vizs: ");
-//		console.log(vizs.length);
-//	}else{
-//		console.log("stupid thing");
-//	}
-}
-
 io.on('connection', function(socket) {
 	
 	socket.on("getRoomDetails", function(data){
@@ -315,7 +163,10 @@ io.on('connection', function(socket) {
 	});
 
 	socket.on("newRoom", function(data) {
-		console.log("newRoom event triggered");
+		console.log("newRoom event triggered")
+		ds[data.roomName] = {};
+		rooms.push(data.roomName);
+		ds[data.roomName].vizs = data.attached_vizs;
 
 		var doc = new Room({
 			roomID : data.roomID,
@@ -332,8 +183,6 @@ io.on('connection', function(socket) {
 			if (err)
 				return console.error(err);
 		});
-		
-		//getAttachedVizs(data);
 
 		console.log("NewRoom added to db");
 		socket.emit("roomCreated", "");
@@ -344,10 +193,6 @@ io.on('connection', function(socket) {
 	socket.on('getActiveRooms', function(data){
 		console.log("getActiveRooms triggered");
 		getActiveRooms(socket);
-	});
-	
-	socket.on('getURLS', function(data){
-		getAttachedVizs({"socket": socket, "roomID": data});
 	});
 
 	socket.on('newViz', function(data) {
